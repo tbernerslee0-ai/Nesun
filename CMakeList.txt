@@ -1,0 +1,123 @@
+cmake_minimum_required(VERSION 3.16)
+
+project(Nesun
+    VERSION 0.1.0
+    DESCRIPTION "Multi-system NES, VTxx/VTxxx, Subor SB-2000, and Wiii3 Famiclone Emulator"
+    LANGUAGES CXX
+)
+
+# Enforce C++20 standard for modern structures (std::array, std::span, etc.)
+set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
+
+# Export compile commands for IDE autocomplete (VS Code, CLion, clangd)
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+
+# Output binaries to a clean bin/ folder inside the build directory
+set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
+
+# ==============================================================================
+# 1. Dependency Discovery (SDL2)
+# ==============================================================================
+find_package(SDL2 REQUIRED)
+
+# ==============================================================================
+# 2. Source & Header Collection
+# ==============================================================================
+set(NESUN_CORE_SOURCES
+    src/core/bus.cpp
+    src/core/cpu.cpp
+    src/core/ppu.cpp
+    src/core/apu.cpp
+)
+
+set(NESUN_MAPPER_SOURCES
+    src/core/mappers/mapper_factory.cpp
+    src/core/mappers/mapper_vtxx.cpp
+    src/core/mappers/mapper_subor.cpp
+    src/core/mappers/mapper_wiii3.cpp
+)
+
+set(NESUN_SUBOR_SOURCES
+    src/core/subor/keyboard.cpp
+    src/core/subor/mouse.cpp
+    src/core/subor/fdc.cpp
+)
+
+set(NESUN_FRONTEND_SOURCES
+    src/frontends/sdl_frontend.cpp
+)
+
+# ==============================================================================
+# 3. Emulation Core Static Library
+# ==============================================================================
+# Building the core as a static library lets you link it to both the main
+# SDL2 executable and standalone unit test runners later.
+add_library(nesun_core STATIC
+    ${NESUN_CORE_SOURCES}
+    ${NESUN_MAPPER_SOURCES}
+    ${NESUN_SUBOR_SOURCES}
+)
+
+target_include_directories(nesun_core PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+)
+
+# ==============================================================================
+# 4. Main Executable Target
+# ==============================================================================
+add_executable(Nesun
+    src/main.cpp
+    ${NESUN_FRONTEND_SOURCES}
+)
+
+target_include_directories(Nesun PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+    ${SDL2_INCLUDE_DIRS}
+)
+
+# Link against Nesun core and SDL2 (handles modern CMake targets & legacy variables)
+if(TARGET SDL2::SDL2)
+    target_link_libraries(Nesun PRIVATE nesun_core SDL2::SDL2)
+    if(TARGET SDL2::SDL2main)
+        target_link_libraries(Nesun PRIVATE SDL2::SDL2main)
+    endif()
+else()
+    target_link_libraries(Nesun PRIVATE nesun_core ${SDL2_LIBRARIES})
+endif()
+
+# ==============================================================================
+# 5. Compiler Warnings & Platform-Specific Tweaks
+# ==============================================================================
+if(MSVC)
+    target_compile_options(nesun_core PRIVATE /W4 /permissive-)
+    target_compile_options(Nesun PRIVATE /W4 /permissive-)
+else()
+    target_compile_options(nesun_core PRIVATE -Wall -Wextra -Wpedantic)
+    target_compile_options(Nesun PRIVATE -Wall -Wextra -Wpedantic)
+endif()
+
+# Copy SDL2.dll automatically on Windows builds if found
+if(WIN32 AND TARGET SDL2::SDL2)
+    add_custom_command(TARGET Nesun POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        $<TARGET_FILE:SDL2::SDL2>
+        $<TARGET_FILE_DIR:Nesun>
+        COMMENT "Copying SDL2 runtime library to output directory..."
+    )
+endif()
+
+# ==============================================================================
+# 6. Testing Suite (Optional / CTest)
+# ==============================================================================
+option(NESUN_BUILD_TESTS "Build Nesun unit and ROM test runners" OFF)
+
+if(NESUN_BUILD_TESTS)
+    enable_testing()
+    # Add test executables under tests/ here as you expand
+    # add_executable(nesun_tests tests/cpu_tests.cpp)
+    # target_link_libraries(nesun_tests PRIVATE nesun_core)
+    # add_test(NAME CPUInstructionTests COMMAND nesun_tests)
+endif()
