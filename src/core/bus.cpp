@@ -35,9 +35,29 @@ uint8_t Bus::cpu_read(uint16_t address, bool readonly) {
         if (mapper_) {
             mapper_->cpu_read(address, data);
         }
+
+        uint8_t Bus::cpu_read(uint16_t address, bool readonly) {
+    uint8_t data = 0;
+
+    if (address >= 0x0000 && address <= 0x1FFF) {
+        return cpu_ram_[address & 0x07FF];
+    }
+    else if (address >= 0x2000 && address <= 0x3FFF) {
+        return ppu_.cpu_read(address & 0x2007, readonly);
+    }
+    else if (address >= 0x4000 && address <= 0x4017) {
+        return apu_.cpu_read(address);
+    }
+    else if (address >= 0x4020 && address <= 0xFFFF) {
+        if (mapper_) {
+            mapper_->cpu_read(address, data);
+        }
+        
+        // Apply active Game Genie / RAM cheats here!
+        // cheat_manager_.apply_patches(address, data);
+        
         return data;
     }
-
     return 0;
 }
 
