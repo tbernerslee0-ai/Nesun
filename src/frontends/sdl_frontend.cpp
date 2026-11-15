@@ -81,14 +81,16 @@ void SDLFrontend::render_frame() {
 }
 
 void SDLFrontend::render_cheat_window() {
+    auto& cheat_manager = bus_.get_cheat_manager();
+
     ImGui::Begin("Nesun // Cheat & Game Genie Manager", &show_cheat_menu_, ImGuiWindowFlags_AlwaysAutoResize);
 
-    // Input fields for adding new codes
     static char code_buf[16] = "";
     static char name_buf[32] = "";
+    static bool invalid_code_error = false;
 
     ImGui::Text("Enter Game Genie Code (6 or 8 chars):");
-    ImGui::InputText("Code", code_buf, IM_ARRAYSIZE(code_buf));
+    ImGui::InputText("Code", code_buf, IM_ARRAYSIZE(code_buf), ImGuiInputTextFlags_CharsUppercase);
     ImGui::InputText("Description", name_buf, IM_ARRAYSIZE(name_buf));
 
     if (ImGui::Button("Add Cheat")) {
@@ -97,12 +99,41 @@ void SDLFrontend::render_cheat_window() {
         if (name.empty()) name = code;
 
         if (!code.empty()) {
-            cheat_manager_.add_cheat(name, code);
-            // Clear inputs
-            code_buf[0] = '\0';
-            name_buf[0] = '\0';
+            if (cheat_manager.add_cheat(name, code)) {
+                code_buf[0] = '\0';
+                name_buf[0] = '\0';
+                invalid_code_error = false;
+            } else {
+                invalid_code_error = true;
+            }
         }
     }
+
+    if (invalid_code_error) {
+        ImGui::SameLine();
+        ImGui::TextColored(ImVec4(1.0f, 0.3f, 0.3f, 1.0f), "Invalid Game Genie code!");
+    }
+
+    ImGui::Separator();
+    ImGui::Text("Active Cheats:");
+
+    std::string to_remove;
+    for (auto& [name, cheat] : cheat_manager.get_cheats()) {
+        ImGui::Checkbox(name.c_str(), &cheat.enabled);
+        ImGui::SameLine();
+        ImGui::TextDisabled("[$%04X -> $%02X]", cheat.address, cheat.patch_value);
+        ImGui::SameLine();
+        if (ImGui::SmallButton(("Remove##" + name).c_str())) {
+            to_remove = name;
+        }
+    }
+
+    if (!to_remove.empty()) {
+        cheat_manager.remove_cheat(to_remove);
+    }
+
+    ImGui::End();
+}
 
     ImGui::Separator();
     ImGui::Text("Active Cheats:");
