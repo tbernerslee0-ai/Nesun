@@ -30,6 +30,8 @@ set(NESUN_CORE_SOURCES
     src/core/cpu.cpp
     src/core/ppu.cpp
     src/core/apu.cpp
+    src/core/cheats/game_genie.cpp
+    src/core/cheats/cheat_manager.cpp
 )
 
 set(NESUN_MAPPER_SOURCES
