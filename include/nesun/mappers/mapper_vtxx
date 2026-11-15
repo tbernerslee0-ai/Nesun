@@ -1,0 +1,34 @@
+#pragma once
+
+#include "mapper.hpp"
+#include <vector>
+
+namespace Nesun {
+
+class MapperVTxx : public Mapper {
+public:
+    MapperVTxx(const std::vector<uint8_t>& prg_rom, 
+               const std::vector<uint8_t>& chr_rom, 
+               uint8_t vtxx_mode_flags);
+
+    bool cpu_read(uint16_t address, uint8_t& data) override;
+    bool cpu_write(uint16_t address, uint8_t data) override;
+    bool ppu_read(uint16_t address, uint8_t& data) override;
+    bool ppu_write(uint16_t address, uint8_t& data) override;
+    
+    void reset() override;
+
+    // VTxx Specific Register Hook
+    void write_vtxx_register(uint16_t address, uint8_t data) override;
+
+private:
+    std::vector<uint8_t> prg_rom_;
+    std::vector<uint8_t> chr_rom_;
+    std::vector<uint8_t> extended_ram_; // Extra RAM banks common on VTxx hardware
+
+    uint8_t mode_flags_ = 0;
+    uint32_t prg_bank_select_ = 0;
+    uint32_t chr_bank_select_ = 0;
+};
+
+} // namespace Nesun
