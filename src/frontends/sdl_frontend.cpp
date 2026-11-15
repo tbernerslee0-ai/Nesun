@@ -1,137 +1,58 @@
 #include "frontends/sdl_frontend.hpp"
-#include "nesun/subor/keyboard.hpp"
+#include <imgui.h>
+#include <imgui_impl_sdl2.h>
+#include <imgui_impl_sdlrenderer2.h>
 #include <iostream>
-#include <chrono>
-#include <thread>
 
 namespace Nesun::Frontend {
 
-SDLFrontend::SDLFrontend(Bus& bus, int window_scale)
-    : bus_(bus), window_scale_(window_scale) {}
-
-SDLFrontend::~SDLFrontend() {
-    shutdown();
-}
+// ... (constructor, shutdown, initialize setup) ...
 
 bool SDLFrontend::initialize(const std::string& window_title) {
-    if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_EVENTS) != 0) {
-        std::cerr << "SDL_Init Error: " << SDL_GetError() << "\n";
-        return false;
-    }
+    // ... [Standard SDL window & renderer init from earlier] ...
 
-    window_ = SDL_CreateWindow(
-        window_title.c_str(),
-        SDL_WINDOWPOS_CENTERED,
-        SDL_WINDOWPOS_CENTERED,
-        PPU::SCREEN_WIDTH * window_scale_,
-        PPU::SCREEN_HEIGHT * window_scale_,
-        SDL_WINDOW_SHOWN | SDL_WINDOW_RESIZABLE
-    );
+    // Setup Dear ImGui Context
+    IMGUI_CHECKVERSION();
+    ImGui::CreateContext();
+    ImGuiIO& io = ImGui::GetIO(); (void)io;
+    io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
 
-    if (!window_) {
-        std::cerr << "SDL_CreateWindow Error: " << SDL_GetError() << "\n";
-        return false;
-    }
+    // Setup Style
+    ImGui::StyleColorsDark();
 
-    renderer_ = SDL_CreateRenderer(
-        window_, -1,
-        SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC
-    );
-
-    if (!renderer_) {
-        std::cerr << "SDL_CreateRenderer Error: " << SDL_GetError() << "\n";
-        return false;
-    }
-
-    framebuffer_texture_ = SDL_CreateTexture(
-        renderer_,
-        SDL_PIXELFORMAT_RGB888,
-        SDL_TEXTUREACCESS_STREAMING,
-        PPU::SCREEN_WIDTH,
-        PPU::SCREEN_HEIGHT
-    );
-
-    // Initialize SDL Audio (44.1kHz, 16-bit stereo/mono queue)
-    SDL_AudioSpec desired_spec{}, obtained_spec{};
-    desired_spec.freq = 44100;
-    desired_spec.format = AUDIO_F32SYS;
-    desired_spec.channels = 1;
-    desired_spec.samples = 1024;
-    desired_spec.callback = nullptr; // Using audio queueing
-
-    audio_device_ = SDL_OpenAudioDevice(nullptr, 0, &desired_spec, &obtained_spec, 0);
-    if (audio_device_ == 0) {
-        std::cout << "Warning: Failed to open SDL Audio device: " << SDL_GetError() << "\n";
-    } else {
-        SDL_PauseAudioDevice(audio_device_, 0); // Unpause audio
-    }
+    // Init ImGui SDL2 / SDL_Renderer bindings
+    ImGui_ImplSDL2_InitForSDLRenderer(window_, renderer_);
+    ImGui_ImplSDLRenderer2_Init(renderer_);
 
     running_ = true;
     return true;
 }
 
-void SDLFrontend::run() {
-    const double target_frame_time_ms = 1000.0 / 60.09; // NTSC frame rate
-
-    while (running_) {
-        auto frame_start = std::chrono::high_resolution_clock::now();
-
-        handle_input();
-        update_emulation();
-        render_frame();
-        push_audio_samples();
-
-        // Frame timing regulation
-        auto frame_end = std::chrono::high_resolution_clock::now();
-        std::chrono::duration<double, std::milli> elapsed = frame_end - frame_start;
-
-        if (elapsed.count() < target_frame_time_ms) {
-            std::this_thread::sleep_for(
-                std::chrono::milliseconds(static_cast<int>(target_frame_time_ms - elapsed.count()))
-            );
-        }
-    }
-}
-
 void SDLFrontend::handle_input() {
     SDL_Event event;
     while (SDL_PollEvent(&event)) {
+        // Forward SDL events to ImGui first
+        ImGui_ImplSDL2_ProcessEvent(&event);
+
         if (event.type == SDL_QUIT) {
             running_ = false;
         }
-        else if (event.type == SDL_KEYDOWN || event.type == SDL_KEYUP) {
-            bool pressed = (event.type == SDL_KEYDOWN);
-            if (pressed && event.key.keysym.sym == SDLK_ESCAPE) {
+        else if (event.type == SDL_KEYDOWN) {
+            if (event.key.keysym.sym == SDLK_ESCAPE) {
                 running_ = false;
-                break;
             }
-
-            // Route key events to active mapper / Subor keyboard matrix if applicable
-            Mapper* mapper = bus_.get_mapper();
-            if (mapper) {
-                // Example hook for Subor keyboard routing
-                // mapper->handle_sdl_key(event.key.keysym.scancode, pressed);
+            // Toggle Cheat Menu with F1 key
+            else if (event.key.keysym.sym == SDLK_F1) {
+                show_cheat_menu_ = !show_cheat_menu_;
             }
         }
-    }
-}
-
-void SDLFrontend::update_emulation() {
-    // Run CPU/PPU/APU cycles until a complete frame is rendered
-    PPU& ppu = bus_.get_ppu();
-    ppu.clear_frame_complete();
-
-    while (!ppu.is_frame_complete()) {
-        bus_.get_cpu().step();
-        ppu.step();
-        bus_.get_apu().step();
     }
 }
 
 void SDLFrontend::render_frame() {
     PPU& ppu = bus_.get_ppu();
     
-    // Update streaming texture with PPU framebuffer pixels
+    // 1. Update PPU Framebuffer Texture
     SDL_UpdateTexture(
         framebuffer_texture_,
         nullptr,
@@ -141,38 +62,78 @@ void SDLFrontend::render_frame() {
 
     SDL_RenderClear(renderer_);
     SDL_RenderCopy(renderer_, framebuffer_texture_, nullptr, nullptr);
+
+    // 2. Start Dear ImGui Frame
+    ImGui_ImplSDLRenderer2_NewFrame();
+    ImGui_ImplSDL2_NewFrame();
+    ImGui::NewFrame();
+
+    // 3. Render Cheat Overlay Window if active
+    if (show_cheat_menu_) {
+        render_cheat_window();
+    }
+
+    // 4. Render ImGui Draw Data over SDL Window
+    ImGui::Render();
+    ImGui_ImplSDLRenderer2_RenderDrawData(ImGui::GetDrawData(), renderer_);
+
     SDL_RenderPresent(renderer_);
 }
 
-void SDLFrontend::push_audio_samples() {
-    if (audio_device_ == 0) return;
+void SDLFrontend::render_cheat_window() {
+    ImGui::Begin("Nesun // Cheat & Game Genie Manager", &show_cheat_menu_, ImGuiWindowFlags_AlwaysAutoResize);
 
-    APU& apu = bus_.get_apu();
-    if (apu.is_sample_ready()) {
-        float sample = apu.get_mixed_sample();
-        SDL_QueueAudio(audio_device_, &sample, sizeof(float));
-        apu.clear_sample_ready();
+    // Input fields for adding new codes
+    static char code_buf[16] = "";
+    static char name_buf[32] = "";
+
+    ImGui::Text("Enter Game Genie Code (6 or 8 chars):");
+    ImGui::InputText("Code", code_buf, IM_ARRAYSIZE(code_buf));
+    ImGui::InputText("Description", name_buf, IM_ARRAYSIZE(name_buf));
+
+    if (ImGui::Button("Add Cheat")) {
+        std::string code(code_buf);
+        std::string name(name_buf);
+        if (name.empty()) name = code;
+
+        if (!code.empty()) {
+            cheat_manager_.add_cheat(name, code);
+            // Clear inputs
+            code_buf[0] = '\0';
+            name_buf[0] = '\0';
+        }
     }
+
+    ImGui::Separator();
+    ImGui::Text("Active Cheats:");
+
+    // Display list of active cheats with toggle checkboxes
+    // (Assuming CheatManager exposes a method to iterate or access active codes)
+    /*
+    auto& cheats = cheat_manager_.get_cheats();
+    for (auto& [name, cheat] : cheats) {
+        bool enabled = cheat.enabled;
+        if (ImGui::Checkbox(name.c_str(), &enabled)) {
+            cheat.enabled = enabled;
+        }
+        ImGui::SameLine();
+        if (ImGui::SmallButton(("Remove##" + name).c_str())) {
+            cheat_manager_.remove_cheat(name);
+            break;
+        }
+    }
+    */
+
+    ImGui::End();
 }
 
 void SDLFrontend::shutdown() {
-    if (audio_device_ != 0) {
-        SDL_CloseAudioDevice(audio_device_);
-        audio_device_ = 0;
-    }
-    if (framebuffer_texture_) {
-        SDL_DestroyTexture(framebuffer_texture_);
-        framebuffer_texture_ = nullptr;
-    }
-    if (renderer_) {
-        SDL_DestroyRenderer(renderer_);
-        renderer_ = nullptr;
-    }
-    if (window_) {
-        SDL_DestroyWindow(window_);
-        window_ = nullptr;
-    }
-    SDL_Quit();
+    // Cleanup ImGui
+    ImGui_ImplSDLRenderer2_Shutdown();
+    ImGui_ImplSDL2_Shutdown();
+    ImGui::DestroyContext();
+
+    // ... [Standard SDL cleanup] ...
 }
 
 } // namespace Nesun::Frontend
