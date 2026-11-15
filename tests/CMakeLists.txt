@@ -21,3 +21,17 @@ target_link_libraries(nesun_unit_tests PRIVATE
 
 # Register test with CTest runner
 add_test(NAME NesunCoreUnitTests COMMAND nesun_unit_tests)
+
+add_executable(nesun_nestest_runner
+    nestest_runner.cpp
+)
+
+target_include_directories(nesun_nestest_runner PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/../include
+)
+
+target_link_libraries(nesun_nestest_runner PRIVATE
+    nesun_core
+)
+
+add_test(NAME NestestAutomatedTest COMMAND nesun_nestest_runner)
