@@ -35,3 +35,15 @@ target_link_libraries(nesun_nestest_runner PRIVATE
 )
 
 add_test(NAME NestestAutomatedTest COMMAND nesun_nestest_runner)
+
+add_executable(nesun_blargg_runner
+    blargg_test_runner.cpp
+)
+
+target_include_directories(nesun_blargg_runner PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/../include
+)
+
+target_link_libraries(nesun_blargg_runner PRIVATE
+    nesun_core
+)
